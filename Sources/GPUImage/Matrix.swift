@@ -1,11 +1,14 @@
 import QuartzCore
 
+// 4x4 矩阵结构体
 public struct Matrix4x4 {
+    // 矩阵元素
     public let m11: Float, m12: Float, m13: Float, m14: Float
     public let m21: Float, m22: Float, m23: Float, m24: Float
     public let m31: Float, m32: Float, m33: Float, m34: Float
     public let m41: Float, m42: Float, m43: Float, m44: Float
 
+    // 通过行主序值初始化矩阵
     public init(rowMajorValues: [Float]) {
         guard rowMajorValues.count > 15 else {
             fatalError("Tried to initialize a 4x4 matrix with fewer than 16 values")
@@ -32,6 +35,7 @@ public struct Matrix4x4 {
         self.m44 = rowMajorValues[15]
     }
 
+    // 单位矩阵
     public static let identity = Matrix4x4(rowMajorValues: [
         1.0, 0.0, 0.0, 0.0,
         0.0, 1.0, 0.0, 0.0,
@@ -40,11 +44,14 @@ public struct Matrix4x4 {
     ])
 }
 
+// 3x3 矩阵结构体
 public struct Matrix3x3 {
+    // 矩阵元素
     public let m11: Float, m12: Float, m13: Float
     public let m21: Float, m22: Float, m23: Float
     public let m31: Float, m32: Float, m33: Float
 
+    // 通过行主序值初始化矩阵
     public init(rowMajorValues: [Float]) {
         guard rowMajorValues.count > 8 else {
             fatalError("Tried to initialize a 3x3 matrix with fewer than 9 values")
@@ -63,12 +70,14 @@ public struct Matrix3x3 {
         self.m33 = rowMajorValues[8]
     }
 
+    // 单位矩阵
     public static let identity = Matrix3x3(rowMajorValues: [
         1.0, 0.0, 0.0,
         0.0, 1.0, 0.0,
         0.0, 0.0, 1.0,
     ])
 
+    // 只包含中心的矩阵
     public static let centerOnly = Matrix3x3(rowMajorValues: [
         0.0, 0.0, 0.0,
         0.0, 1.0, 0.0,
@@ -76,6 +85,7 @@ public struct Matrix3x3 {
     ])
 }
 
+// 创建正交矩阵
 func orthographicMatrix(
     _ left: Float, right: Float, bottom: Float, top: Float, near: Float, far: Float,
     anchorTopLeft: Bool = false
@@ -104,7 +114,9 @@ func orthographicMatrix(
     ])
 }
 
+// 扩展 Matrix4x4 结构体
 extension Matrix4x4 {
+    // 通过 CATransform3D 初始化矩阵
     public init(_ transform3D: CATransform3D) {
         self.m11 = Float(transform3D.m11)
         self.m12 = Float(transform3D.m12)
@@ -127,6 +139,7 @@ extension Matrix4x4 {
         self.m44 = Float(transform3D.m44)
     }
 
+    // 通过 CGAffineTransform 初始化矩阵
     public init(_ transform: CGAffineTransform) {
         self.init(CATransform3DMakeAffineTransform(transform))
     }

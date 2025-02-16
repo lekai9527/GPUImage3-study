@@ -1,48 +1,89 @@
 import AVFoundation
 import Metal
 
+/// 视频输入类，用于从视频文件读取帧并进行处理
 public class MovieInput: ImageSource {
+    /// 目标容器，用于管理图像消费者
     public let targets = TargetContainer()
+    
+    /// 是否运行性能基准测试
     public var runBenchmark = false
 
+    /// Metal纹理缓存，用于存储视频帧
     var videoTextureCache: CVMetalTextureCache?
+    
+    /// YUV到RGB转换的渲染管线状态
     let yuvConversionRenderPipelineState: MTLRenderPipelineState
+    
+    /// YUV转换的查找表
     var yuvLookupTable: [String: (Int, MTLStructMember)] = [:]
+    
+    /// YUV缓冲区大小
     var yuvBufferSize: Int = 0
 
+    /// 视频资源对象
     let asset: AVAsset
+    
+    /// 视频读取器
     let assetReader: AVAssetReader
+    
+    /// 是否以实际速度播放
     let playAtActualSpeed: Bool
+    
+    /// 是否循环播放
     let loop: Bool
+    
+    /// 视频编码是否完成
     var videoEncodingIsFinished = false
+    
+    /// 上一帧的时间
     var previousFrameTime = CMTime.zero
+    
+    /// 上一帧的实际时间
     var previousActualFrameTime = CFAbsoluteTimeGetCurrent()
 
+    /// 捕获的帧数
     var numberOfFramesCaptured = 0
+    
+    /// 捕获期间的总帧时间
     var totalFrameTimeDuringCapture: Double = 0.0
 
     // TODO: Add movie reader synchronization
     // TODO: Someone will have to add back in the AVPlayerItem logic, because I don't know how that works
+    
+    /// 初始化视频输入
+    /// - Parameters:
+    ///   - asset: 视频资源
+    ///   - playAtActualSpeed: 是否以实际速度播放
+    ///   - loop: 是否循环播放
     public init(asset: AVAsset, playAtActualSpeed: Bool = false, loop: Bool = false) throws {
         self.asset = asset
         self.playAtActualSpeed = playAtActualSpeed
         self.loop = loop
+        
+        // 生成YUV到RGB转换的渲染管线
         let (pipelineState, lookupTable, bufferSize) = generateRenderPipelineState(
             device: sharedMetalRenderingDevice, vertexFunctionName: "twoInputVertex",
             fragmentFunctionName: "yuvConversionFullRangeFragment", operationName: "YUVToRGB")
         self.yuvConversionRenderPipelineState = pipelineState
         self.yuvLookupTable = lookupTable
         self.yuvBufferSize = bufferSize
+        
+        // 创建Metal纹理缓存
         let _ = CVMetalTextureCacheCreate(
             kCFAllocatorDefault, nil, sharedMetalRenderingDevice.device, nil, &videoTextureCache)
 
+        // 初始化视频读取器
         assetReader = try AVAssetReader(asset: self.asset)
 
+        // 设置视频输出参数
         let outputSettings: [String: Any] = [
             kCVPixelBufferMetalCompatibilityKey as String: true,
             (kCVPixelBufferPixelFormatTypeKey as String): NSNumber(
                 value: Int32(kCVPixelFormatType_420YpCbCr8BiPlanarFullRange)),
         ]
+        
+        // 创建视频轨道输出
         let readerVideoTrackOutput = AVAssetReaderTrackOutput(
             track: self.asset.tracks(withMediaType: AVMediaType.video)[0],
             outputSettings: outputSettings)
