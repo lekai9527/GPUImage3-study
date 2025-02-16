@@ -2,14 +2,20 @@ import AVFoundation
 import Foundation
 import Metal
 
+/// 相机代理协议
 public protocol CameraDelegate {
+    /// 当捕获到新的视频帧时调用
+    /// - Parameter sampleBuffer: 捕获的视频帧
     func didCaptureBuffer(_ sampleBuffer: CMSampleBuffer)
 }
 
+/// 物理相机位置枚举
 public enum PhysicalCameraLocation {
-    case backFacing
-    case frontFacing
+    case backFacing  // 后置摄像头
+    case frontFacing // 前置摄像头
 
+    /// 获取相机位置对应的图像方向
+    /// - Returns: 图像方向
     func imageOrientation() -> ImageOrientation {
         switch self {
         case .backFacing: return .landscapeRight
@@ -21,6 +27,8 @@ public enum PhysicalCameraLocation {
         }
     }
 
+    /// 获取相机位置对应的AVCaptureDevice位置
+    /// - Returns: AVCaptureDevice位置
     func captureDevicePosition() -> AVCaptureDevice.Position {
         switch self {
         case .backFacing: return .back
@@ -28,6 +36,8 @@ public enum PhysicalCameraLocation {
         }
     }
 
+    /// 获取对应位置的AVCaptureDevice实例
+    /// - Returns: AVCaptureDevice实例
     func device() -> AVCaptureDevice? {
         let devices = AVCaptureDevice.devices(for: AVMediaType.video)
         for case let device in devices {
@@ -40,48 +50,101 @@ public enum PhysicalCameraLocation {
     }
 }
 
+/// 相机错误结构体
 public struct CameraError: Error {
 }
 
 let initialBenchmarkFramesToIgnore = 5
 
+/// 相机类，负责视频捕获和帧处理
 public class Camera: NSObject, ImageSource, AVCaptureVideoDataOutputSampleBufferDelegate {
 
+    /// 相机位置
     public var location: PhysicalCameraLocation {
         didSet {
-            // TODO: Swap the camera locations, framebuffers as needed
+            // TODO: 需要实现相机位置切换逻辑
         }
     }
+    
+    /// 是否运行性能测试
     public var runBenchmark: Bool = false
+    
+    /// 是否记录FPS
     public var logFPS: Bool = false
 
+    /// 目标容器
     public let targets = TargetContainer()
+    
+    /// 相机代理
     public var delegate: CameraDelegate?
+    
+    /// AVCaptureSession实例
     public let captureSession: AVCaptureSession
+    
+    /// 图像方向
     public var orientation: ImageOrientation?
+    
+    /// 输入相机设备
     public let inputCamera: AVCaptureDevice!
+    
+    /// 视频输入
     let videoInput: AVCaptureDeviceInput!
+    
+    /// 视频输出
     let videoOutput: AVCaptureVideoDataOutput!
+    
+    /// Metal纹理缓存
     var videoTextureCache: CVMetalTextureCache?
 
+    /// 是否支持完整YUV范围
     var supportsFullYUVRange: Bool = false
+    
+    /// 是否以YUV格式捕获
     let captureAsYUV: Bool
+    
+    /// YUV转换渲染管线状态
     let yuvConversionRenderPipelineState: MTLRenderPipelineState?
+    
+    /// YUV查找表
     var yuvLookupTable: [String: (Int, MTLStructMember)] = [:]
+    
+    /// YUV缓冲区大小
     var yuvBufferSize: Int = 0
 
+    /// 帧渲染信号量
     let frameRenderingSemaphore = DispatchSemaphore(value: 1)
+    
+    /// 相机处理队列
     let cameraProcessingQueue = DispatchQueue.global()
+    
+    /// 相机帧处理队列
     let cameraFrameProcessingQueue = DispatchQueue(
         label: "com.sunsetlakesoftware.GPUImage.cameraFrameProcessingQueue",
         attributes: [])
 
+    /// 忽略的初始帧数
     let framesToIgnore = 5
+    
+    /// 已捕获的帧数
     var numberOfFramesCaptured = 0
+    
+    /// 总帧处理时间
     var totalFrameTimeDuringCapture: Double = 0.0
+    
+    /// 自上次检查以来的帧数
     var framesSinceLastCheck = 0
+    
+    /// 上次检查时间
     var lastCheckTime = CFAbsoluteTimeGetCurrent()
 
+    /// 初始化相机
+    /// - Parameters:
+    ///   - sessionPreset: AVCaptureSession预设
+    ///   - cameraDevice: 相机设备（可选）
+    ///   - location: 相机位置，默认为后置摄像头
+    ///   - orientation: 图像方向（可选）
+    ///   - captureAsYUV: 是否以YUV格式捕获，默认为true
+    /// - Throws: 初始化失败时抛出错误
     public init(
         sessionPreset: AVCaptureSession.Preset, cameraDevice: AVCaptureDevice? = nil,
         location: PhysicalCameraLocation = .backFacing, orientation: ImageOrientation? = nil,
@@ -124,7 +187,7 @@ public class Camera: NSObject, ImageSource, AVCaptureVideoDataOutputSampleBuffer
             captureSession.addInput(videoInput)
         }
 
-        // Add the video frame output
+        // 配置视频输出
         videoOutput = AVCaptureVideoDataOutput()
         videoOutput.alwaysDiscardsLateVideoFrames = false
 
@@ -196,11 +259,11 @@ public class Camera: NSObject, ImageSource, AVCaptureVideoDataOutputSampleBuffer
         }
     }
 
+    /// 捕获输出回调
     public func captureOutput(
         _ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-
         guard
             frameRenderingSemaphore.wait(timeout: DispatchTime.now())
                 == DispatchTimeoutResult.success
@@ -225,11 +288,11 @@ public class Camera: NSObject, ImageSource, AVCaptureVideoDataOutputSampleBuffer
             if self.captureAsYUV {
                 var luminanceTextureRef: CVMetalTexture? = nil
                 var chrominanceTextureRef: CVMetalTexture? = nil
-                // Luminance plane
+                // 亮度平面
                 let _ = CVMetalTextureCacheCreateTextureFromImage(
                     kCFAllocatorDefault, self.videoTextureCache!, cameraFrame, nil, .r8Unorm,
                     bufferWidth, bufferHeight, 0, &luminanceTextureRef)
-                // Chrominance plane
+                // 色度平面
                 let _ = CVMetalTextureCacheCreateTextureFromImage(
                     kCFAllocatorDefault, self.videoTextureCache!, cameraFrame, nil, .rg8Unorm,
                     bufferWidth / 2, bufferHeight / 2, 1, &chrominanceTextureRef)
@@ -239,7 +302,6 @@ public class Camera: NSObject, ImageSource, AVCaptureVideoDataOutputSampleBuffer
                     let luminanceTexture = CVMetalTextureGetTexture(concreteLuminanceTextureRef),
                     let chrominanceTexture = CVMetalTextureGetTexture(concreteChrominanceTextureRef)
                 {
-
                     let conversionMatrix: Matrix3x3
                     if self.supportsFullYUVRange {
                         conversionMatrix = colorConversionMatrix601FullRangeDefault
@@ -324,8 +386,8 @@ public class Camera: NSObject, ImageSource, AVCaptureVideoDataOutputSampleBuffer
         }
     }
 
+    /// 开始捕获
     public func startCapture() {
-
         let _ = frameRenderingSemaphore.wait(timeout: DispatchTime.distantFuture)
         self.numberOfFramesCaptured = 0
         self.totalFrameTimeDuringCapture = 0
@@ -336,6 +398,7 @@ public class Camera: NSObject, ImageSource, AVCaptureVideoDataOutputSampleBuffer
         }
     }
 
+    /// 停止捕获
     public func stopCapture() {
         if captureSession.isRunning {
             let _ = frameRenderingSemaphore.wait(timeout: DispatchTime.distantFuture)
@@ -345,7 +408,8 @@ public class Camera: NSObject, ImageSource, AVCaptureVideoDataOutputSampleBuffer
         }
     }
 
+    /// 传输上一帧图像
     public func transmitPreviousImage(to target: ImageConsumer, atIndex: UInt) {
-        // Not needed for camera
+        // 相机不需要实现此方法
     }
 }
